@@ -1,0 +1,318 @@
+#![feature(map_first_last)]
+#![feature(int_abs_diff)]
+#![feature(const_for)]
+#[macro_use]
+extern crate lazy_static;
+extern crate regex;
+
+use std::cmp::Ordering;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read};
+use std::iter::{from_fn};
+use std::mem::swap;
+use std::ops::{Add, AddAssign, Sub};
+
+use regex::Regex;
+use crate::Letter::{A, B, C, D, E, F, G};
+
+const FILENAME: &'static str = "i1.txt";
+lazy_static! {
+    static ref LINE_RE: Regex = Regex::new(r"(\S+)").unwrap();
+}
+
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+enum Letter {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G
+}
+
+impl Letter {
+    fn next(&self) -> Option<Letter> {
+        Some(match self {
+            A => B,
+            B => C,
+            C => D,
+            D => E,
+            E => F,
+            F => G,
+            G => return None
+        })
+    }
+
+    fn to_flag(&self) -> u32 {
+        match self {
+            A => 1,
+            B => 2,
+            C => 4,
+            D => 8,
+            E => 16,
+            F => 32,
+            G => 64
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+struct LetterSet {
+    inner: u32
+}
+
+impl LetterSet {
+    fn empty() -> Self {
+        LetterSet {
+            inner: 0
+        }
+    }
+
+    fn new(letters: &[Letter]) -> Self {
+        let mut acc = LetterSet::empty();
+        for l in letters {
+            acc = acc.with_letter(*l);
+        }
+        acc
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inner == 0
+    }
+
+    fn with_letter(&self, l: Letter) -> Self {
+        LetterSet {
+            inner: self.inner | l.to_flag()
+        }
+    }
+
+    fn has_letter(&self, l: Letter) -> bool {
+        (self.inner & l.to_flag()) != 0
+    }
+
+    fn union(&self, oth: &Self) -> Self {
+        LetterSet {
+            inner: self.inner | oth.inner
+        }
+    }
+
+    fn intersect(&self, oth: &Self) -> Self {
+        LetterSet {
+            inner: self.inner & oth.inner
+        }
+    }
+
+    fn compliment(&self) -> Self {
+        LetterSet {
+            inner: self.inner ^ 127
+        }
+    }
+
+    fn could_map_to(&self, oth: &Self, part_map: &[Letter]) -> bool {
+        let mut self_n = self.inner;
+        let mut mask = LetterSet::empty();
+        let mut anti_mask = LetterSet::empty();
+        for l in part_map.iter().copied() {
+            if (self_n & 1) == 0 {
+                anti_mask = anti_mask.with_letter(l)
+            } else {
+                mask = mask.with_letter(l)
+            }
+            self_n >>= 1;
+        }
+        oth.intersect(&anti_mask).is_empty() && (oth.intersect(&mask) == mask)
+    }
+
+    fn map(&self, map: &[Letter; 7]) -> LetterSet {
+        let mut ret = LetterSet::empty();
+        let mut self_n = self.inner;
+        for i in 0..7 {
+            if (self_n & 1) != 0 {
+                ret = ret.with_letter(map[i]);
+            }
+            self_n >>= 1;
+        }
+        ret
+    }
+}
+
+impl FromIterator<Letter> for LetterSet {
+    fn from_iter<T: IntoIterator<Item=Letter>>(iter: T) -> Self {
+        iter.into_iter().fold(LetterSet::empty(), |acc, v| acc.with_letter(v))
+    }
+}
+
+lazy_static! {
+    static ref LETTER_TABLE: [LetterSet; 10] = [
+        LetterSet::new(&[A, B, C, E, F, G]),
+        LetterSet::new(&[C, F]),
+        LetterSet::new(&[A, C, D, E, G]),
+        LetterSet::new(&[A, C, D, F, G]),
+        LetterSet::new(&[B, C, D, F]),
+        LetterSet::new(&[A, B, D, F, G]),
+        LetterSet::new(&[A, B, D, E, F, G]),
+        LetterSet::new(&[A, C, F]),
+        LetterSet::new(&[A, B, C, D, E, F, G]),
+        LetterSet::new(&[A, B, C, D, F, G])
+    ];
+}
+
+fn could_match_digit(lt: LetterSet, part_map: &[Letter]) -> bool {
+    LETTER_TABLE.iter().any(|t| lt.could_map_to(t, part_map))
+}
+
+fn letter_to_digit(lt: LetterSet) -> u32 {
+    LETTER_TABLE.iter().enumerate().filter_map(|v| {
+        if *v.1 == lt {
+            Some(v.0 as u32)
+        } else {
+            None
+        }
+    }).next().unwrap()
+}
+
+fn bytes_into_ints(mut it: impl Iterator<Item = u8>) -> impl Iterator<Item = u32> {
+    from_fn(move || {
+        let mut v = None;
+        while let Some(c) = it.next() {
+            match c {
+                b'0'..=b'9' => {
+                    let c_v = (c - b'0') as u32;
+                    v = v.map(|n| n * 10 + c_v).or(Some(c_v));
+                }
+                _ => {
+                    if v.is_some() {
+                        return v;
+                    }
+                }
+            }
+        }
+        return v;
+    })
+}
+
+fn read_ascii_chars() -> impl Iterator<Item = u8> {
+    let mut file = File::open(FILENAME).unwrap();
+    let mut buf = BufReader::new(file);
+    from_fn(move || {
+        let mut b = [0];
+        if buf.read(&mut b).unwrap() == 1 {
+            Some(b[0])
+        } else {
+            None
+        }
+    })
+}
+
+fn read_lines() -> impl Iterator<Item = String> {
+    let mut file = File::open(FILENAME).unwrap();
+    let mut buf = BufReader::new(file);
+    from_fn(move || {
+        let mut s = String::new();
+        if buf.read_line(&mut s).unwrap() == 0 {
+            None
+        } else {
+            Some(s)
+        }
+    })
+}
+
+fn read_positioned(it: impl Iterator<Item = u8>) -> impl Iterator<Item = (u8, usize, usize)> {
+    let mut row = 0;
+    let mut col = 0;
+    it.map(move |v| {
+        let ret = (v, row, col);
+        match v {
+            b'\n' => {
+                row += 1;
+                col = 0;
+            },
+            _ => {
+                col += 1;
+            }
+        }
+        ret
+    })
+}
+
+fn read_data() -> impl Iterator<Item = Vec<Vec<Letter>>> {
+    read_lines().map(|l| {
+        LINE_RE.captures_iter(l.as_str())
+            .map(|c| c.get(1).unwrap().as_str())
+            .filter_map(|e| {
+                if e == "|" {
+                    None
+                } else {
+                    Some(e.chars().map(|c| {
+                        match c {
+                            'a' => A,
+                            'b' => B,
+                            'c' => C,
+                            'd' => D,
+                            'e' => E,
+                            'f' => F,
+                            'g' => G,
+                            _ => panic!()
+                        }
+                    }).collect())
+                }
+            })
+            .collect()
+    })
+}
+
+fn p1(data: &Vec<Vec<Vec<Letter>>>) {
+    let r = data.iter()
+        .map(|v| v.iter().skip(10))
+        .flatten().filter_map(|v| {
+        match v.len() {
+            2 => Some(()),
+            4 => Some(()),
+            3 => Some(()),
+            7 => Some(()),
+            _ => None
+        }
+    }).count();
+    println!("1> {}", r);
+}
+
+fn p2(data: &Vec<Vec<LetterSet>>) {
+    let mut sum = 0;
+    for entry in data.iter() {
+        let mut map_guess = [A; 7];
+        let mut guess_pos = 0;
+        while guess_pos != 7 {
+            if entry.iter().all(|v| {
+                could_match_digit(*v, &map_guess[..=guess_pos])
+            }) {
+                guess_pos += 1;
+            } else {
+                loop {
+                    match map_guess[guess_pos].next() {
+                        Some(next) => {
+                            map_guess[guess_pos] = next;
+                            break;
+                        },
+                        None => {
+                            map_guess[guess_pos] = A;
+                            guess_pos -= 1;
+                        }
+                    }
+                }
+            }
+        }
+        sum += entry.iter().skip(10)
+            .fold(0, |acc, v| {
+                acc * 10 + letter_to_digit(v.map(&map_guess))
+            })
+    }
+    println!("2> {}", sum);
+}
+
+fn main() {
+    let data = read_data().collect::<Vec<_>>();
+    p1(&data);
+    let data = data.into_iter().map(|v| v.into_iter().map(|v| v.into_iter().collect()).collect()).collect();
+    p2(&data);
+}
