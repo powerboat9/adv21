@@ -1,4 +1,5 @@
 #![feature(mixed_integer_ops)]
+#![feature(bool_to_option)]
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -26,20 +27,6 @@ fn read_data() -> Vec<Vec<u8>> {
             _ => return None
         })
     }).collect()).collect()
-}
-
-#[derive(Copy, Clone, Eq, PartialEq)]
-enum PType {
-    Paren,
-    Square,
-    Curly,
-    Arrow
-}
-
-#[derive(Copy, Clone)]
-enum Action {
-    Open,
-    Close
 }
 
 fn get_adjacent(y: usize, x: usize) -> impl Iterator<Item=(usize, usize)> {
@@ -86,14 +73,31 @@ fn tick(data: &mut Vec<Vec<u8>>) -> u32 {
     ret
 }
 
-fn main() {
-    let mut data = read_data();
+fn tick_it(mut data: Vec<Vec<u8>>) -> impl Iterator<Item=(usize, u32)> {
+    from_fn(move || Some(tick(&mut data))).enumerate().map(|v| (v.0 + 1, v.1))
+}
 
-    let res_1 = (0..100).into_iter().map(|_| tick(&mut data)).sum::<u32>();
-    println!("1> {}", res_1);
-    let mut r = 101;
-    while tick(&mut data) != 100 {
-        r += 1;
+fn main() {
+    let data = read_data();
+
+    let mut res_1 = 0;
+    let mut res_2 = 0;
+    for (pos, n) in tick_it(data) {
+        let mut did_op = false;
+        if pos <= 100 {
+            did_op = true;
+            res_1 += n;
+        }
+        if res_2 == 0 {
+            did_op = true;
+            if n == 100 {
+                res_2 = pos;
+            }
+        }
+        if !did_op {
+            break
+        }
     }
-    println!("2> {}", r);
+    println!("1> {}", res_1);
+    println!("2> {}", res_2);
 }
