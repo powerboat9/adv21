@@ -1,11 +1,10 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::{BufRead, BufReader};
 use std::iter::from_fn;
 use std::mem::swap;
-use std::ops::BitAnd;
 
 const FILENAME: &'static str = "i1.txt";
 
@@ -20,12 +19,6 @@ fn read_lines() -> impl Iterator<Item = String> {
             Some(s)
         }
     })
-}
-
-#[derive(Copy, Clone)]
-enum Fold {
-    Up(u32),
-    Left(u32)
 }
 
 fn read_data() -> (Vec<char>, HashMap<(char, char), char>) {
@@ -100,9 +93,6 @@ impl Chain {
             if let Some(c) = ent.0 {
                 inc_by(&mut char_refs, c, *n);
             }
-            if let Some(c) = ent.1 {
-                inc_by(&mut char_refs, c, *n);
-            }
         }
         let mut min = None;
         let mut max = None;
@@ -116,28 +106,8 @@ impl Chain {
                 _ => max = Some((c, n))
             }
         }
-        (max.unwrap().1 - min.unwrap().1) / 2
+        max.unwrap().1 - min.unwrap().1
     }
-}
-
-fn get_char_max(chain: &[char]) -> u32 {
-    let mut track = HashMap::new();
-    for c in chain {
-        *track.entry(*c).or_insert(0) += 1;
-    }
-    track.into_iter().max_by(|(_, a), (_, b)| {
-        a.cmp(b)
-    }).unwrap().1
-}
-
-fn get_char_min(chain: &[char]) -> u32 {
-    let mut track = HashMap::new();
-    for c in chain {
-        *track.entry(*c).or_insert(0) += 1;
-    }
-    track.into_iter().min_by(|(_, a), (_, b)| {
-        a.cmp(b)
-    }).unwrap().1
 }
 
 fn main() {
