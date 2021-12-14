@@ -1,0 +1,3 @@
+source ./SETTINGS
+
+curl 
